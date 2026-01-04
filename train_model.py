@@ -72,5 +72,8 @@ y = monthly["target"]
 rf = RandomForestRegressor(random_state=42)
 rf.fit(X, y)
 
-joblib.dump((rf, features), "model.pkl")
+# joblib.dump((rf, features), "model.pkl")
+joblib.dump((rf, features, p5, p95), "model.pkl")
+
 print("Model saved as model.pkl")
+

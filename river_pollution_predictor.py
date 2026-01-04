@@ -11,7 +11,10 @@ server = Flask(__name__)
 app = Dash(__name__, server=server)
 
 
-model, features = joblib.load("model.pkl")
+# model, features = joblib.load("model.pkl")
+
+model, features, p5, p95 = joblib.load("model.pkl")
+
 
 df = pd.read_csv("taiwan_river_data.csv")
 
@@ -99,7 +102,11 @@ latest = (
     .tail(1)
 )
 
-latest["predicted_delta"] = model.predict(latest[features])
+# latest["predicted_delta"] = model.predict(latest[features])
+scaled_pred = model.predict(latest[features])
+latest["predicted_delta"] = ((scaled_pred + 1) / 2) * (p95 - p5) + p5
+
+
 
 table = latest[["station_name", "month", "predicted_delta"]]
 
