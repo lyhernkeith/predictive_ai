@@ -1,16 +1,9 @@
-import os
 import pandas as pd
 import numpy as np
 import joblib
-from flask import Flask
-from dash import Dash, dash_table, html
-
-print("Starting app...")
-
-server = Flask(__name__)
-app = Dash(__name__, server=server)
-
-model, features = joblib.load("model.pkl")
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import RandomizedSearchCV
 
 df = pd.read_csv("taiwan_river_data.csv")
 df = df.rename(columns={
@@ -30,13 +23,22 @@ df["timestamp"] = pd.to_datetime(
 )
 
 df = df.dropna(subset=["timestamp"])
+for col in ["temperature", "pH", "turbidity"]:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+df = df[["station_id", "timestamp", "temperature", "pH", "turbidity"]].dropna()
 df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
 
-monthly = df.groupby(["station_id", "station_name", "month"], as_index=False).mean()
+monthly = df.groupby(["station_id", "month"], as_index=False).mean()
 
 monthly["pollution_score"] = (
     0.6 * monthly["turbidity"] +
     0.4 * (monthly["pH"] - 7).abs()
+)
+
+scaler = StandardScaler()
+monthly[["temperature", "pH", "turbidity"]] = scaler.fit_transform(
+    monthly[["temperature", "pH", "turbidity"]]
 )
 
 monthly = monthly.sort_values(["station_id", "month"])
@@ -54,21 +56,21 @@ monthly["month_cos"] = np.cos(2 * np.pi * monthly["month_num"] / 12)
 
 monthly = monthly.dropna()
 
-latest = monthly.sort_values(["station_id", "month"]).groupby("station_id").tail(1)
-latest["predicted_delta"] = model.predict(latest[features])
+monthly["delta"] = monthly["next_score"] - monthly["pollution_score"]
+p5, p95 = np.percentile(monthly["delta"], [5, 95])
+monthly["target"] = np.clip(monthly["delta"], p5, p95)
+monthly["target"] = 2 * (monthly["target"] - p5) / (p95 - p5) - 1
 
-table = latest[["station_name", "month", "predicted_delta"]]
+features = [
+    c for c in monthly.columns
+    if "lag" in c or "ma" in c or c in ["month_sin", "month_cos"]
+]
 
-app.layout = html.Div([
-    html.H2("Next Month River Pollution Predictions"),
-    dash_table.DataTable(
-        columns=[{"name": c, "id": c} for c in table.columns],
-        data=table.to_dict("records"),
-    )
-])
+X = monthly[features]
+y = monthly["target"]
 
-print("App ready.")
+rf = RandomForestRegressor(random_state=42)
+rf.fit(X, y)
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8050))
-    app.run(host="0.0.0.0", port=port)
+joblib.dump((rf, features), "model.pkl")
+print("Model saved as model.pkl")
