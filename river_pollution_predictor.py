@@ -1,6 +1,190 @@
+# import pandas as pd
+# from sklearn.ensemble import RandomForestClassifier
+# from sklearn.metrics import classification_report
+
+# def main():
+#     # ===============================
+#     # 1. LOAD DATA
+#     # ===============================
+#     df = pd.read_csv("taiwan_river_data.csv")
+
+#     # Rename columns from EPA dataset
+#     df = df.rename(columns={
+#         "監測站代碼": "station_id",
+#         "採樣日期": "date",
+#         "採樣時間": "time",
+#         "水溫_溫度": "temperature",
+#         "pH值_統計": "pH",
+#         "懸浮固體_mg-L": "turbidity"
+#     })
+
+#     # ===============================
+#     # 2. TIMESTAMP ALIGNMENT
+#     # ===============================
+#     df["timestamp"] = pd.to_datetime(
+#         df["date"].astype(str) + df["time"].astype(str),
+#         format="%Y%m%d%H:%M",
+#         errors="coerce"
+#     )
+    
+#     print(df[["station_id", "timestamp"]])
+
+
+#     df = df.dropna(subset=["timestamp"])
+
+#     # Keep only needed columns
+
+#     # df = df[[
+#     #     "station_id",
+#     #     "timestamp",
+#     #     "temperature",
+#     #     "pH",
+#     #     "turbidity"
+#     # ]].dropna()
+
+#     for col in ["temperature", "pH", "turbidity"]:
+#         df[col] = pd.to_numeric(df[col], errors="coerce")
+
+#     df = df[[
+#         "station_id",
+#         "timestamp",
+#         "temperature",
+#         "pH",
+#         "turbidity"
+#     ]]
+
+#     df = df.dropna()
+
+
+#     # Align to month start
+#     df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
+
+#     # ===============================
+#     # 3. MONTHLY AGGREGATION
+#     # ===============================
+#     monthly = (
+#         df
+#         .groupby(["station_id", "month"], as_index=False)
+#         .agg({
+#             "temperature": "mean",
+#             "pH": "mean",
+#             "turbidity": "mean"
+#         })
+#     )
+
+#     # ===============================
+#     # 4. POLLUTION SCORE (NO SS)
+#     # ===============================
+#     monthly["pollution_score"] = (
+#         0.6 * monthly["turbidity"] +
+#         0.4 * (monthly["pH"] - 7).abs()
+#     )
+
+#     # ===============================
+#     # 5. LABEL CREATION
+#     # ===============================
+#     monthly = monthly.sort_values(["station_id", "month"])
+
+#     monthly["next_score"] = (
+#         monthly
+#         .groupby("station_id")["pollution_score"]
+#         .shift(-1)
+#     )
+
+#     # for col in ["turbidity", "pH", "temperature"]:
+#     #     monthly[f"{col}_lag1"] = (
+#     #         monthly
+#     #         .groupby("station_id")[col]
+#     #         .shift(1)
+#     #     )
+
+#     # monthly = monthly.dropna()
+#     monthly["delta"] = monthly["next_score"] - monthly["pollution_score"]
+
+#     print("Monthly rows:", len(monthly))
+#     print("Stations with >=2 months:",
+#         (monthly.groupby("station_id").size() >= 2).sum())
+
+
+#     def make_label(delta, threshold=0.3):
+#         if delta > threshold:
+#             return 1     # more polluted
+#         elif delta < -threshold:
+#             return -1    # less polluted
+#         return 0        # stable
+
+#     monthly["target"] = monthly["delta"].apply(make_label)
+#     monthly = monthly.dropna()
+
+#     # ===============================
+#     # 6. TRAIN / TEST SPLIT
+#     # ===============================
+#     features = ["temperature", "pH", "turbidity"]
+
+#     X = monthly[features]
+#     y = monthly["target"]
+
+#     split = int(len(monthly) * 0.8)
+
+#     X_train, X_test = X.iloc[:split], X.iloc[split:]
+#     y_train, y_test = y.iloc[:split], y.iloc[split:]
+
+#     # ===============================
+#     # 7. MODEL
+#     # ===============================
+#     model = RandomForestClassifier(
+#         n_estimators=300,
+#         max_depth=7,
+#         min_samples_leaf=5,
+#         random_state=42
+#     )
+
+#     model.fit(X_train, y_train)
+
+#     # ===============================
+#     # 8. EVALUATION
+#     # ===============================
+#     pred = model.predict(X_test)
+
+#     print("\nClassification Report:\n")
+#     print(classification_report(y_test, pred))
+
+#     print("\nFeature Importance:")
+#     for f, i in sorted(
+#         zip(features, model.feature_importances_),
+#         key=lambda x: x[1],
+#         reverse=True
+#     ):
+#         print(f"{f}: {i:.3f}")
+
+#     # ===============================
+#     # 9. LATEST PREDICTION
+#     # ===============================
+#     latest = (
+#         monthly
+#         .sort_values(["station_id", "month"])
+#         .groupby("station_id")
+#         .tail(1)
+#     )
+
+#     latest["prediction"] = model.predict(latest[features])
+
+#     print("\nNext Month Prediction:")
+#     print(latest[["station_id", "month", "prediction"]])
+
+# if __name__ == "__main__":
+#     main()
+
+
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score
+import numpy as np
+
+
+
 
 def main():
     # ===============================
@@ -27,34 +211,13 @@ def main():
         errors="coerce"
     )
     
-    print(df[["station_id", "timestamp"]])
-
-
     df = df.dropna(subset=["timestamp"])
 
-    # Keep only needed columns
-
-    # df = df[[
-    #     "station_id",
-    #     "timestamp",
-    #     "temperature",
-    #     "pH",
-    #     "turbidity"
-    # ]].dropna()
-
+    # Convert features to numeric
     for col in ["temperature", "pH", "turbidity"]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    df = df[[
-        "station_id",
-        "timestamp",
-        "temperature",
-        "pH",
-        "turbidity"
-    ]]
-
-    df = df.dropna()
-
+    df = df[["station_id", "timestamp", "temperature", "pH", "turbidity"]].dropna()
 
     # Align to month start
     df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
@@ -62,115 +225,98 @@ def main():
     # ===============================
     # 3. MONTHLY AGGREGATION
     # ===============================
-    monthly = (
-        df
-        .groupby(["station_id", "month"], as_index=False)
-        .agg({
-            "temperature": "mean",
-            "pH": "mean",
-            "turbidity": "mean"
-        })
+    monthly = df.groupby(["station_id", "month"], as_index=False).agg({
+        "temperature": "mean",
+        "pH": "mean",
+        "turbidity": "mean"
+    })
+
+    # ===============================
+    # 4. POLLUTION SCORE
+    # ===============================
+    # Compute a pollution score (scaled)
+    monthly["pollution_score"] = 0.6 * monthly["turbidity"] + 0.4 * (monthly["pH"] - 7).abs()
+
+    # Standardize features
+    scaler = StandardScaler()
+    monthly[["temperature", "pH", "turbidity"]] = scaler.fit_transform(
+        monthly[["temperature", "pH", "turbidity"]]
     )
 
     # ===============================
-    # 4. POLLUTION SCORE (NO SS)
-    # ===============================
-    monthly["pollution_score"] = (
-        0.6 * monthly["turbidity"] +
-        0.4 * (monthly["pH"] - 7).abs()
-    )
-
-    # ===============================
-    # 5. LABEL CREATION
+    # 5. CREATE LAGS AND DELTA
     # ===============================
     monthly = monthly.sort_values(["station_id", "month"])
 
-    monthly["next_score"] = (
-        monthly
-        .groupby("station_id")["pollution_score"]
-        .shift(-1)
-    )
+    # next month's pollution score
+    monthly["next_score"] = monthly.groupby("station_id")["pollution_score"].shift(-1)
 
-    # for col in ["turbidity", "pH", "temperature"]:
-    #     monthly[f"{col}_lag1"] = (
-    #         monthly
-    #         .groupby("station_id")[col]
-    #         .shift(1)
-    #     )
+    # lag features
+    for col in ["turbidity", "pH", "temperature"]:
+        monthly[f"{col}_lag1"] = monthly.groupby("station_id")[col].shift(1)
 
-    # monthly = monthly.dropna()
+    monthly = monthly.dropna()
+    
+    # delta = how much pollution changes next month
     monthly["delta"] = monthly["next_score"] - monthly["pollution_score"]
 
-    print("Monthly rows:", len(monthly))
-    print("Stations with >=2 months:",
-        (monthly.groupby("station_id").size() >= 2).sum())
+    # Normalize delta per station to [-1, 1]
+    def normalize(series):
+        min_val = series.min()
+        max_val = series.max()
+        if max_val - min_val == 0:
+            return series * 0  # if constant, return 0
+        return 2 * (series - min_val) / (max_val - min_val) - 1
 
-
-    def make_label(delta, threshold=0.3):
-        if delta > threshold:
-            return 1     # more polluted
-        elif delta < -threshold:
-            return -1    # less polluted
-        return 0        # stable
-
-    monthly["target"] = monthly["delta"].apply(make_label)
-    monthly = monthly.dropna()
+    monthly["target"] = monthly.groupby("station_id")["delta"].transform(normalize)
 
     # ===============================
     # 6. TRAIN / TEST SPLIT
     # ===============================
-    features = ["temperature", "pH", "turbidity"]
-
+    features = ["temperature_lag1", "pH_lag1", "turbidity_lag1"]
     X = monthly[features]
     y = monthly["target"]
 
     split = int(len(monthly) * 0.8)
-
     X_train, X_test = X.iloc[:split], X.iloc[split:]
     y_train, y_test = y.iloc[:split], y.iloc[split:]
 
     # ===============================
     # 7. MODEL
     # ===============================
-    model = RandomForestClassifier(
+    model = RandomForestRegressor(
         n_estimators=300,
         max_depth=7,
         min_samples_leaf=5,
         random_state=42
     )
-
     model.fit(X_train, y_train)
 
     # ===============================
     # 8. EVALUATION
     # ===============================
-    pred = model.predict(X_test)
+    y_pred = model.predict(X_test)
 
-    print("\nClassification Report:\n")
-    print(classification_report(y_test, pred))
+    r2 = r2_score(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))  # manual RMSE
+
+    print("R2 Score:", r2)
+    print("RMSE:", rmse)
+
 
     print("\nFeature Importance:")
-    for f, i in sorted(
-        zip(features, model.feature_importances_),
-        key=lambda x: x[1],
-        reverse=True
-    ):
+    for f, i in sorted(zip(features, model.feature_importances_), key=lambda x: x[1], reverse=True):
         print(f"{f}: {i:.3f}")
 
     # ===============================
     # 9. LATEST PREDICTION
     # ===============================
-    latest = (
-        monthly
-        .sort_values(["station_id", "month"])
-        .groupby("station_id")
-        .tail(1)
-    )
+    latest = monthly.sort_values(["station_id", "month"]).groupby("station_id").tail(1)
+    latest["predicted_delta"] = model.predict(latest[features])
 
-    latest["prediction"] = model.predict(latest[features])
+    print("\nNext Month Predicted Change (-1: better, +1: worse):")
+    print(latest[["station_id", "month", "predicted_delta"]])
 
-    print("\nNext Month Prediction:")
-    print(latest[["station_id", "month", "prediction"]])
 
 if __name__ == "__main__":
     main()
