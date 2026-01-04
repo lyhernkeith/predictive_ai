@@ -5,27 +5,20 @@ import joblib
 from flask import Flask
 from dash import Dash, dash_table, html
 
-# -----------------------
-# App setup
-# -----------------------
 server = Flask(__name__)
 app = Dash(__name__, server=server)
 
-# -----------------------
-# Load model safely
-# -----------------------
+
 loaded = joblib.load("model.pkl")
 
-# Support both old and new model.pkl formats
+
 if len(loaded) == 2:
     model, features = loaded
     p5 = p95 = None
 else:
     model, features, p5, p95 = loaded
 
-# -----------------------
-# Load and clean data
-# -----------------------
+
 df = pd.read_csv("taiwan_river_data.csv")
 
 df = df.rename(columns={
@@ -38,11 +31,9 @@ df = df.rename(columns={
     "懸浮固體_mg-L": "turbidity"
 })
 
-# Convert numeric columns explicitly (CRITICAL FIX)
 for col in ["temperature", "pH", "turbidity"]:
     df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Timestamp
 df["timestamp"] = pd.to_datetime(
     df["date"].astype(str) + df["time"].astype(str),
     format="%Y%m%d%H:%M",
@@ -51,7 +42,7 @@ df["timestamp"] = pd.to_datetime(
 
 df = df.dropna(subset=["timestamp"])
 
-# Monthly aggregation
+
 df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
 
 monthly = df.groupby(
@@ -63,9 +54,7 @@ monthly = df.groupby(
     "turbidity": "mean"
 })
 
-# -----------------------
-# Feature engineering
-# -----------------------
+
 monthly["pollution_score"] = (
     0.6 * monthly["turbidity"] +
     0.4 * (monthly["pH"] - 7).abs()
@@ -74,7 +63,7 @@ monthly["pollution_score"] = (
 monthly = monthly.sort_values(["station_id", "month"])
 monthly["next_score"] = monthly.groupby("station_id")["pollution_score"].shift(-1)
 
-# Lags + moving averages
+
 for col in ["temperature", "pH", "turbidity"]:
     for lag in range(1, 7):
         monthly[f"{col}_lag{lag}"] = monthly.groupby("station_id")[col].shift(lag)
@@ -93,16 +82,14 @@ for col in ["temperature", "pH", "turbidity"]:
         .reset_index(0, drop=True)
     )
 
-# Seasonality
+
 monthly["month_num"] = monthly["month"].dt.month
 monthly["month_sin"] = np.sin(2 * np.pi * monthly["month_num"] / 12)
 monthly["month_cos"] = np.cos(2 * np.pi * monthly["month_num"] / 12)
 
 monthly = monthly.dropna()
 
-# -----------------------
-# Prediction
-# -----------------------
+
 latest = (
     monthly
     .sort_values(["station_id", "month"])
@@ -112,19 +99,13 @@ latest = (
 
 latest["predicted_delta"] = model.predict(latest[features])
 
-# Optional clipping (only if p5/p95 exist)
 if p5 is not None and p95 is not None:
     latest["predicted_delta"] = latest["predicted_delta"].clip(p5, p95)
 
-# -----------------------
-# Table
-# -----------------------
+
 table = latest[["station_name", "month", "predicted_delta"]]
 table["month"] = table["month"].dt.strftime("%Y-%m")
 
-# -----------------------
-# Dash layout
-# -----------------------
 app.layout = html.Div([
     html.H2("Next-Month River Pollution Change Prediction"),
     dash_table.DataTable(
@@ -134,9 +115,7 @@ app.layout = html.Div([
     )
 ])
 
-# -----------------------
-# Run (Render-compatible)
-# -----------------------
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
     app.run(host="0.0.0.0", port=port)
