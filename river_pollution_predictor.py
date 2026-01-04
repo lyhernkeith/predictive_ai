@@ -36,7 +36,14 @@ df = df.dropna(subset=["timestamp"])
 df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
 
 
-monthly = df.groupby(["station_id", "station_name", "month"], as_index=False).mean()
+# monthly = df.groupby(["station_id", "station_name", "month"], as_index=False).mean()
+monthly = df.groupby(["station_id", "month"], as_index=False).agg({
+    "station_name": "first",  # keep station name
+    "temperature": "mean",
+    "pH": "mean",
+    "turbidity": "mean"
+})
+
 
 
 monthly["pollution_score"] = 0.6 * monthly["turbidity"] + 0.4 * (monthly["pH"] - 7).abs()
