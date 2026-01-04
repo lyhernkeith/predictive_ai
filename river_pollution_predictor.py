@@ -7,7 +7,6 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import RandomizedSearchCV
 
-
 server = Flask(__name__)
 app = Dash(__name__, server=server)
 
@@ -38,9 +37,7 @@ monthly = df.groupby(["station_id", "month"], as_index=False).agg({
     "turbidity": "mean"
 })
 
-
 monthly["pollution_score"] = 0.6 * monthly["turbidity"] + 0.4 * (monthly["pH"] - 7).abs()
-
 
 scaler = StandardScaler()
 monthly[["temperature", "pH", "turbidity"]] = scaler.fit_transform(monthly[["temperature", "pH", "turbidity"]])
@@ -54,19 +51,16 @@ for col in ["temperature", "pH", "turbidity"]:
     monthly[f"{col}_ma3"] = monthly.groupby("station_id")[col].transform(lambda x: x.rolling(3).mean())
     monthly[f"{col}_ma6"] = monthly.groupby("station_id")[col].transform(lambda x: x.rolling(6).mean())
 
-
 monthly['month_num'] = monthly['month'].dt.month
 monthly['month_sin'] = np.sin(2 * np.pi * monthly['month_num']/12)
 monthly['month_cos'] = np.cos(2 * np.pi * monthly['month_num']/12)
 
 monthly = monthly.dropna()
 
-
 monthly["delta"] = monthly["next_score"] - monthly["pollution_score"]
 p5, p95 = np.percentile(monthly['delta'], [5, 95])
 monthly['target'] = np.clip(monthly['delta'], p5, p95)
 monthly['target'] = 2 * (monthly['target'] - p5) / (p95 - p5) - 1
-
 
 features = []
 for col in ["temperature", "pH", "turbidity"]:
@@ -83,7 +77,6 @@ split = int(len(monthly) * 0.8)
 X_train, X_test = X.iloc[:split], X.iloc[split:]
 y_train, y_test = y.iloc[:split], y.iloc[split:]
 
-
 param_grid = {
     "n_estimators": [500, 700, 900],
     "max_depth": [8, 10, 12, 15],
@@ -97,7 +90,6 @@ search = RandomizedSearchCV(rf, param_distributions=param_grid, n_iter=20,
 search.fit(X_train, y_train)
 best_model = search.best_estimator_
 
-
 monthly_features = monthly.copy()
 station_names = df[['station_id', 'station_name']].drop_duplicates()
 monthly_features = monthly_features.merge(station_names, on='station_id', how='left')
@@ -106,15 +98,6 @@ latest = monthly_features.sort_values(["station_id", "month"]).groupby("station_
 latest["predicted_delta"] = best_model.predict(latest[features])
 
 latest_table = latest[["station_name", "month", "predicted_delta"]]
-
-def color_delta(val):
-    if val > 0.01:
-        color = 'tomato'
-    elif val < -0.01:
-        color = 'lightgreen'
-    else:
-        color = 'lightyellow'
-    return f'background-color: {color}'
 
 app.layout = html.Div([
     html.H2("Next Month River Pollution Predictions"),
@@ -145,4 +128,4 @@ server = app.server
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=False, host="0.0.0.0", port=port)
