@@ -7,17 +7,16 @@ from dash import Dash, dash_table, html
 
 print("Starting app...")
 
+
 server = Flask(__name__)
 app = Dash(__name__, server=server)
 
 
-# model, features = joblib.load("model.pkl")
-
+# model.pkl now contains: (model, features, p5, p95)
 model, features, p5, p95 = joblib.load("model.pkl")
 
 
 df = pd.read_csv("taiwan_river_data.csv")
-
 df = df.rename(columns={
     "監測站代碼": "station_id",
     "監測站名": "station_name",
@@ -28,64 +27,29 @@ df = df.rename(columns={
     "懸浮固體_mg-L": "turbidity"
 })
 
-
 df["timestamp"] = pd.to_datetime(
     df["date"].astype(str) + df["time"].astype(str),
     format="%Y%m%d%H:%M",
     errors="coerce"
 )
-
 df = df.dropna(subset=["timestamp"])
 df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
 
 
-numeric_cols = ["temperature", "pH", "turbidity"]
-for col in numeric_cols:
-    df[col] = pd.to_numeric(df[col], errors="coerce")
-
-df = df.dropna(subset=numeric_cols)
+monthly = df.groupby(["station_id", "station_name", "month"], as_index=False).mean()
 
 
-monthly_numeric = (
-    df
-    .groupby(["station_id", "month"], as_index=False)[numeric_cols]
-    .mean()
-)
-
-monthly_names = (
-    df
-    .groupby("station_id", as_index=False)["station_name"]
-    .first()
-)
-
-monthly = monthly_numeric.merge(monthly_names, on="station_id", how="left")
-
-monthly["pollution_score"] = (
-    0.6 * monthly["turbidity"] +
-    0.4 * (monthly["pH"] - 7).abs()
-)
-
+monthly["pollution_score"] = 0.6 * monthly["turbidity"] + 0.4 * (monthly["pH"] - 7).abs()
 
 monthly = monthly.sort_values(["station_id", "month"])
 monthly["next_score"] = monthly.groupby("station_id")["pollution_score"].shift(-1)
 
-for col in numeric_cols:
+
+for col in ["temperature", "pH", "turbidity"]:
     for lag in range(1, 7):
         monthly[f"{col}_lag{lag}"] = monthly.groupby("station_id")[col].shift(lag)
-
-    monthly[f"{col}_ma3"] = (
-        monthly.groupby("station_id")[col]
-        .rolling(3)
-        .mean()
-        .reset_index(0, drop=True)
-    )
-
-    monthly[f"{col}_ma6"] = (
-        monthly.groupby("station_id")[col]
-        .rolling(6)
-        .mean()
-        .reset_index(0, drop=True)
-    )
+    monthly[f"{col}_ma3"] = monthly.groupby("station_id")[col].rolling(3).mean().reset_index(0, drop=True)
+    monthly[f"{col}_ma6"] = monthly.groupby("station_id")[col].rolling(6).mean().reset_index(0, drop=True)
 
 
 monthly["month_num"] = monthly["month"].dt.month
@@ -95,17 +59,10 @@ monthly["month_cos"] = np.cos(2 * np.pi * monthly["month_num"] / 12)
 monthly = monthly.dropna()
 
 
-latest = (
-    monthly
-    .sort_values(["station_id", "month"])
-    .groupby("station_id")
-    .tail(1)
-)
+latest = monthly.sort_values(["station_id", "month"]).groupby("station_id").tail(1)
 
-# latest["predicted_delta"] = model.predict(latest[features])
-scaled_pred = model.predict(latest[features])
-latest["predicted_delta"] = ((scaled_pred + 1) / 2) * (p95 - p5) + p5
-
+pred_norm = model.predict(latest[features])
+latest["predicted_delta"] = 0.5 * (pred_norm + 1) * (p95 - p5) + p5
 
 
 table = latest[["station_name", "month", "predicted_delta"]]
@@ -116,6 +73,22 @@ app.layout = html.Div([
     dash_table.DataTable(
         columns=[{"name": c, "id": c} for c in table.columns],
         data=table.to_dict("records"),
+        style_data_conditional=[
+            {
+                'if': {'filter_query': '{predicted_delta} > 0.01', 'column_id': 'predicted_delta'},
+                'backgroundColor': 'tomato', 'color': 'white'
+            },
+            {
+                'if': {'filter_query': '{predicted_delta} < -0.01', 'column_id': 'predicted_delta'},
+                'backgroundColor': 'lightgreen', 'color': 'black'
+            },
+            {
+                'if': {'filter_query': '{predicted_delta} >= -0.01 && {predicted_delta} <= 0.01', 'column_id': 'predicted_delta'},
+                'backgroundColor': 'lightyellow', 'color': 'black'
+            },
+        ],
+        style_cell={'textAlign': 'center', 'padding': '5px'},
+        style_header={'fontWeight': 'bold', 'backgroundColor': 'lightgrey'}
     )
 ])
 
