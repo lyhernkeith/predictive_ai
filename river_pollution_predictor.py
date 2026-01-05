@@ -5,20 +5,13 @@ import joblib
 from flask import Flask
 from dash import Dash, dash_table, html
 
-# =========================
-# App setup
-# =========================
+
 server = Flask(__name__)
 app = Dash(__name__, server=server)
 
-# =========================
-# Load model (STRICT)
-# =========================
+
 model, scaler, features, p5, p95 = joblib.load("model.pkl")
 
-# =========================
-# Load & clean data
-# =========================
 df = pd.read_csv("taiwan_river_data.csv")
 
 df = df.rename(columns={
@@ -42,9 +35,6 @@ df["timestamp"] = pd.to_datetime(
 
 df = df.dropna(subset=["timestamp"])
 
-# =========================
-# Monthly aggregation
-# =========================
 df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
 
 monthly = df.groupby(
@@ -63,9 +53,7 @@ monthly["pollution_score"] = (
 
 monthly = monthly.sort_values(["station_id", "month"])
 
-# =========================
-# Feature engineering (IDENTICAL)
-# =========================
+
 for col in ["temperature", "pH", "turbidity"]:
     for lag in range(1, 7):
         monthly[f"{col}_lag{lag}"] = monthly.groupby("station_id")[col].shift(lag)
@@ -84,9 +72,7 @@ monthly["month_cos"] = np.cos(2 * np.pi * monthly["month_num"] / 12)
 
 monthly = monthly.dropna()
 
-# =========================
-# Predict latest month
-# =========================
+
 latest = (
     monthly
     .sort_values(["station_id", "month"])
@@ -98,9 +84,6 @@ X_latest = scaler.transform(latest[features])
 latest["predicted_delta"] = model.predict(X_latest)
 latest["predicted_delta"] = latest["predicted_delta"].clip(p5, p95)
 
-# =========================
-# Table
-# =========================
 table = latest.loc[:, ["station_name", "month", "predicted_delta"]].copy()
 table["month"] = table["month"].dt.strftime("%Y-%m")
 
@@ -113,9 +96,7 @@ app.layout = html.Div([
     )
 ])
 
-# =========================
-# Run
-# =========================
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8050))
     app.run(host="0.0.0.0", port=port)

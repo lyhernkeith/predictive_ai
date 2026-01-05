@@ -4,9 +4,7 @@ import joblib
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 
-# =========================
-# Load & clean data
-# =========================
+
 df = pd.read_csv("taiwan_river_data.csv")
 
 df = df.rename(columns={
@@ -32,9 +30,8 @@ for col in ["temperature", "pH", "turbidity"]:
 
 df = df.dropna(subset=["temperature", "pH", "turbidity"])
 
-# =========================
-# Monthly aggregation
-# =========================
+
+
 df["month"] = df["timestamp"].dt.to_period("M").dt.to_timestamp()
 
 monthly = (
@@ -56,9 +53,7 @@ monthly = monthly.sort_values(["station_id", "month"])
 monthly["next_score"] = monthly.groupby("station_id")["pollution_score"].shift(-1)
 monthly["delta"] = monthly["next_score"] - monthly["pollution_score"]
 
-# =========================
-# Feature engineering
-# =========================
+
 for col in ["temperature", "pH", "turbidity"]:
     for lag in range(1, 7):
         monthly[f"{col}_lag{lag}"] = monthly.groupby("station_id")[col].shift(lag)
@@ -77,9 +72,6 @@ monthly["month_cos"] = np.cos(2 * np.pi * monthly["month_num"] / 12)
 
 monthly = monthly.dropna().reset_index(drop=True)
 
-# =========================
-# Train
-# =========================
 features = [
     c for c in monthly.columns
     if "lag" in c or "ma" in c or c in ["month_sin", "month_cos"]
@@ -99,7 +91,7 @@ rf = RandomForestRegressor(
 
 rf.fit(X_scaled, y)
 
-# Percentiles for clipping
+
 p5 = y.quantile(0.05)
 p95 = y.quantile(0.95)
 
